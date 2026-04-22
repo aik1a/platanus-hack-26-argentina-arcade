@@ -9,28 +9,21 @@ const WINNING_NAME_LENGTH = 3;
 const MATCH_TIME_LIMIT_MS = 120000; // 2 minutes
 
 const COLORS = {
-  background: 0x0b0f03,
   frame: 0x3a3a0a,
   white: 0xf7ffd8,
   burgertronic: 0xffcc00,
-  burgertronicDark: 0x8a6d00,
   tacosaurus: 0xff3b3b,
-  tacosaurusDark: 0x8a1f1f,
   itemBurger: 0x8b4513,
   itemFries: 0xffd84d,
   itemDrink: 0x3ba3ff,
   itemIceCream: 0xff9ec7,
   itemTaco: 0xf7c948,
   itemBurrito: 0x7a4a1e,
-  itemDrinkP2: 0x3ba3ff,
-  itemSalsa: 0xff3b3b,
   lifeActive: 0xff6ec7,
   scoreText: 0xe1ff00,
   carBody: 0x5a6c8c,
-  carWindow: 0xaaeeff,
   road: 0x1a1e05,
   overlay: 0x0c0e02,
-  cell: 0x1a1e05,
 };
 
 const CABINET_KEYS = {
@@ -45,6 +38,9 @@ const KEYBOARD_TO_ARCADE = {};
 for (const [arcadeCode, keys] of Object.entries(CABINET_KEYS)) {
   for (const key of keys) {
     KEYBOARD_TO_ARCADE[key.toLowerCase()] = arcadeCode;
+    if (key.length > 1) {
+      KEYBOARD_TO_ARCADE[key] = arcadeCode;
+    }
   }
 }
 
@@ -56,7 +52,7 @@ const LETTER_GRID = [
   ['DEL', 'END'],
 ];
 
-const LANES_1P = [130, 230, 330, 430];
+const LANES_1P = [200, 380];
 const LANES_2P = [130, 220, 380, 470]; // 0,1 for P1. 2,3 for P2.
 
 const config = {
@@ -103,12 +99,12 @@ function create() {
   createEndGameUi(scene);
   createControls(scene);
   
+  showStartScreen(scene);
+
   loadHighScores().then(scores => {
       scene.state.highScores = scores;
-      showStartScreen(scene);
   }).catch(() => {
       scene.state.highScores = [];
-      showStartScreen(scene);
   });
 }
 
@@ -184,17 +180,21 @@ function updateBackgroundForMode(scene) {
     scene.divider.setVisible(scene.state.mode === '2P');
 }
 
+function S(sz, col, bold, extra) {
+  const o = { fontFamily: 'monospace', fontSize: sz + 'px', color: col };
+  if (bold) o.fontStyle = 'bold';
+  return extra ? Object.assign(o, extra) : o;
+}
+
 function createHud(scene) {
   scene.hud = {};
-  scene.hud.p1ScoreTitle = scene.add.text(40, 20, 'FORK BURGER', { fontFamily: 'monospace', fontSize: '20px', color: '#ffcc00', fontStyle: 'bold' });
-  scene.hud.p1ScoreValue = scene.add.text(40, 50, 'SCORE: 0', { fontFamily: 'monospace', fontSize: '20px', color: '#e1ff00' });
-  scene.hud.p1Lives = scene.add.text(GAME_WIDTH - 150, 40, 'LIVES: 3', { fontFamily: 'monospace', fontSize: '20px', color: '#ff6ec7', fontStyle: 'bold' });
-  
-  scene.hud.timeCombo = scene.add.text(40, GAME_HEIGHT - 40, 'TIME 00:00   COMBO x1', { fontFamily: 'monospace', fontSize: '18px', color: '#f7ffd8' });
-
-  scene.hud.p2ScoreTitle = scene.add.text(40, GAME_HEIGHT - 60, 'TACO STACK', { fontFamily: 'monospace', fontSize: '20px', color: '#ff3b3b', fontStyle: 'bold' });
-  scene.hud.p2ScoreValue = scene.add.text(40, GAME_HEIGHT - 30, 'SCORE: 0', { fontFamily: 'monospace', fontSize: '20px', color: '#ff3b3b' });
-  scene.hud.p2Lives = scene.add.text(GAME_WIDTH - 150, GAME_HEIGHT - 40, 'LIVES: 3', { fontFamily: 'monospace', fontSize: '20px', color: '#ff6ec7', fontStyle: 'bold' });
+  scene.hud.p1ScoreTitle = scene.add.text(40, 20, 'FORK BURGER', S(20, '#ffcc00', 1));
+  scene.hud.p1ScoreValue = scene.add.text(40, 50, 'SCORE: 0', S(20, '#e1ff00'));
+  scene.hud.p1Lives = scene.add.text(GAME_WIDTH - 150, 40, 'LIVES: 3', S(20, '#ff6ec7', 1));
+  scene.hud.timeCombo = scene.add.text(40, GAME_HEIGHT - 40, 'TIME 00:00   COMBO x1', S(18, '#f7ffd8'));
+  scene.hud.p2ScoreTitle = scene.add.text(40, GAME_HEIGHT - 60, 'TACO STACK', S(20, '#ff3b3b', 1));
+  scene.hud.p2ScoreValue = scene.add.text(40, GAME_HEIGHT - 30, 'SCORE: 0', S(20, '#ff3b3b'));
+  scene.hud.p2Lives = scene.add.text(GAME_WIDTH - 150, GAME_HEIGHT - 40, 'LIVES: 3', S(20, '#ff6ec7', 1));
 }
 
 function refreshHud(scene) {
@@ -221,6 +221,7 @@ function refreshHud(scene) {
 function createGameObjects(scene) {
   scene.state.p1.obj = scene.add.rectangle(60, 0, 30, 45, COLORS.burgertronic);
   scene.state.p2.obj = scene.add.rectangle(60, 0, 30, 45, COLORS.tacosaurus);
+  scene.state.p2.obj.setVisible(false);
 }
 
 function updateChefPos(scene) {
@@ -241,12 +242,12 @@ function createStartScreen(scene) {
   scene.startScreen.container = c;
   c.setDepth(10);
   c.add(scene.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, COLORS.overlay, 0.97));
-  c.add(scene.add.text(GAME_WIDTH / 2, 150, 'HOT DEPLOY', { fontFamily: 'monospace', fontSize: '42px', color: '#ffcc00', fontStyle: 'bold' }).setOrigin(0.5));
-  c.add(scene.add.text(GAME_WIDTH / 2, 200, 'FORK BURGER vs TACO STACK', { fontFamily: 'monospace', fontSize: '20px', color: '#ff3b3b', fontStyle: 'bold' }).setOrigin(0.5));
-  
+  c.add(scene.add.text(GAME_WIDTH / 2, 150, 'HOT DEPLOY', S(42, '#ffcc00', 1)).setOrigin(0.5));
+  c.add(scene.add.text(GAME_WIDTH / 2, 200, 'FORK BURGER vs TACO STACK', S(20, '#ff3b3b', 1)).setOrigin(0.5));
+
   scene.startScreen.modes = [];
-  scene.startScreen.modes.push(scene.add.text(GAME_WIDTH / 2, 300, '1 PLAYER', { fontFamily: 'monospace', fontSize: '24px', color: '#f7ffd8' }).setOrigin(0.5));
-  scene.startScreen.modes.push(scene.add.text(GAME_WIDTH / 2, 350, '2 PLAYERS', { fontFamily: 'monospace', fontSize: '24px', color: '#f7ffd8' }).setOrigin(0.5));
+  scene.startScreen.modes.push(scene.add.text(GAME_WIDTH / 2, 300, '1 PLAYER', S(24, '#f7ffd8')).setOrigin(0.5));
+  scene.startScreen.modes.push(scene.add.text(GAME_WIDTH / 2, 350, '2 PLAYERS', S(24, '#f7ffd8')).setOrigin(0.5));
   c.add(scene.startScreen.modes[0]);
   c.add(scene.startScreen.modes[1]);
   c.setVisible(false);
@@ -263,8 +264,6 @@ function updateStartMenuHighlight(scene) {
 }
 
 function handleStartMenu(scene, time) {
-  updateStartMenuHighlight(scene);
-  
   if (consumePressed(scene, 'P1_D') || consumePressed(scene, 'P2_D')) {
       scene.state.menu.cursor = (scene.state.menu.cursor + 1) % 2;
       updateStartMenuHighlight(scene);
@@ -299,13 +298,13 @@ function createEndGameUi(scene) {
   const c = scene.add.container(0, 0); c.setDepth(20);
   scene.endGame.container = c;
   c.add(scene.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, COLORS.overlay, 0.98));
-  scene.endGame.title = scene.add.text(GAME_WIDTH / 2, 100, 'GAME OVER', { fontFamily: 'monospace', fontSize: '30px', color: '#f7ffd8', fontStyle: 'bold' }).setOrigin(0.5);
+  scene.endGame.title = scene.add.text(GAME_WIDTH / 2, 100, 'GAME OVER', S(30, '#f7ffd8', 1)).setOrigin(0.5);
   c.add(scene.endGame.title);
 
-  scene.endGame.scoreDisplay = scene.add.text(GAME_WIDTH / 2, 150, '', { fontFamily: 'monospace', fontSize: '24px', color: '#ffcc00', align: 'center' }).setOrigin(0.5);
+  scene.endGame.scoreDisplay = scene.add.text(GAME_WIDTH / 2, 150, '', S(24, '#ffcc00', 0, { align: 'center' })).setOrigin(0.5);
   c.add(scene.endGame.scoreDisplay);
 
-  scene.endGame.nameValue = scene.add.text(GAME_WIDTH / 2, 220, '___', { fontFamily: 'monospace', fontSize: '36px', color: '#ff6ec7', fontStyle: 'bold', align: 'center', letterSpacing: 10 }).setOrigin(0.5);
+  scene.endGame.nameValue = scene.add.text(GAME_WIDTH / 2, 220, '___', S(36, '#ff6ec7', 1, { align: 'center', letterSpacing: 10 })).setOrigin(0.5);
   c.add(scene.endGame.nameValue);
 
   scene.endGame.gridLabels = [];
@@ -316,9 +315,9 @@ function createEndGameUi(scene) {
       const value = rowValues[col];
       const cellX = GAME_WIDTH / 2 - rowWidth / 2 + 28 + col * 56;
       const cellY = 320 + row * 28;
-      const cell = scene.add.rectangle(cellX, cellY, value.length > 1 ? 64 : 42, 24, COLORS.cell, 0.95);
+      const cell = scene.add.rectangle(cellX, cellY, value.length > 1 ? 64 : 42, 24, COLORS.road, 0.95);
       cell.setStrokeStyle(2, COLORS.frame, 0.8);
-      const label = scene.add.text(cellX, cellY, value, { fontFamily: 'monospace', fontSize: value.length > 1 ? '14px' : '18px', color: '#f7fbff', fontStyle: 'bold', align: 'center' }).setOrigin(0.5);
+      const label = scene.add.text(cellX, cellY, value, S(value.length > 1 ? 14 : 18, '#f7fbff', 1, { align: 'center' })).setOrigin(0.5);
       scene.endGame.gridLabels.push({ cell, label, row, col, value });
       c.add(cell); c.add(label);
     }
@@ -365,7 +364,7 @@ function updatePlaying(scene, time, delta) {
     // Pick different lanes
     let pickedLanes = [];
     while (pickedLanes.length < numToSpawn) {
-        let maxLanes = scene.state.mode === '1P' ? 4 : 4;
+        let maxLanes = scene.state.mode === '1P' ? 2 : 4;
         let l = Phaser.Math.Between(0, maxLanes - 1);
         if (!pickedLanes.includes(l)) pickedLanes.push(l);
     }
@@ -395,14 +394,19 @@ function updatePlaying(scene, time, delta) {
 
   handleChefMovement(scene);
   handleServeInput(scene, time);
-  refreshHud(scene);
+
+  if (!pState.lastHudUpdate || pState.timeElapsed - pState.lastHudUpdate >= 500) {
+      pState.lastHudUpdate = pState.timeElapsed;
+      refreshHud(scene);
+  }
 }
 
 function loseLife(scene, playerKey) {
     scene.state[playerKey].lives--;
     scene.state[playerKey].comboStreak = 0;
     scene.state[playerKey].comboMult = 1;
-    
+    refreshHud(scene);
+
     if (scene.state[playerKey].lives <= 0) {
         if (scene.state.mode === '1P') {
             showGameOver(scene, 'p1');
@@ -440,12 +444,10 @@ function endMatch2P(scene, message) {
 
 function handleChefMovement(scene) {
   if (consumePressed(scene, 'P1_U')) {
-      let maxLanes = scene.state.mode === '1P' ? 3 : 1;
       if (scene.state.p1.laneIndex > 0) { scene.state.p1.laneIndex--; updateChefPos(scene); }
   }
   if (consumePressed(scene, 'P1_D')) {
-      let maxLanes = scene.state.mode === '1P' ? 3 : 1;
-      if (scene.state.p1.laneIndex < maxLanes) { scene.state.p1.laneIndex++; updateChefPos(scene); }
+      if (scene.state.p1.laneIndex < 1) { scene.state.p1.laneIndex++; updateChefPos(scene); }
   }
   
   if (scene.state.mode === '2P') {
@@ -476,8 +478,8 @@ function spawnCar(scene, laneIdx) {
   } else {
       if (itemType === 0) itemColor = COLORS.itemTaco;
       else if (itemType === 1) itemColor = COLORS.itemBurrito;
-      else if (itemType === 2) itemColor = COLORS.itemDrinkP2;
-      else itemColor = COLORS.itemSalsa;
+      else if (itemType === 2) itemColor = COLORS.itemDrink;
+      else itemColor = COLORS.tacosaurus;
   }
   
   const icon = scene.add.rectangle(770, laneY - 40, 14, 14, itemColor);
@@ -496,16 +498,9 @@ function handlePlayerServe(scene, time, playerKey) {
   if (scene.state[playerKey].lockoutUntil > time) return;
 
   let servedItem = -1;
-  if (playerKey === 'p1') {
-      if (consumePressed(scene, 'P1_1')) servedItem = 0;
-      else if (consumePressed(scene, 'P1_2')) servedItem = 1;
-      else if (consumePressed(scene, 'P1_3')) servedItem = 2;
-      else if (consumePressed(scene, 'P1_4')) servedItem = 3;
-  } else {
-      if (consumePressed(scene, 'P2_1')) servedItem = 0;
-      else if (consumePressed(scene, 'P2_2')) servedItem = 1;
-      else if (consumePressed(scene, 'P2_3')) servedItem = 2;
-      else if (consumePressed(scene, 'P2_4')) servedItem = 3;
+  const px = playerKey === 'p1' ? 'P1' : 'P2';
+  for (let b = 1; b <= 4; b++) {
+    if (consumePressed(scene, px + '_' + b)) { servedItem = b - 1; break; }
   }
 
   if (servedItem !== -1) {
@@ -532,10 +527,12 @@ function handlePlayerServe(scene, time, playerKey) {
 
         closestCar.rect.destroy(); closestCar.bubble.destroy(); closestCar.icon.destroy();
         scene.state.playing.cars.splice(closestIdx, 1);
+        refreshHud(scene);
       } else {
         scene.state[playerKey].comboStreak = 0;
         scene.state[playerKey].comboMult = 1;
         scene.state[playerKey].lockoutUntil = time + 500;
+        refreshHud(scene);
       }
     }
   }
@@ -546,7 +543,7 @@ function updateNameEntryHighlights(scene) {
   const activeCol = scene.state.nameEntry.col;
   scene.endGame.gridLabels.forEach(({ cell, label, row, col }) => {
     const isActive = row === activeRow && col === activeCol;
-    cell.setFillStyle(isActive ? COLORS.scoreText : COLORS.cell, isActive ? 1 : 0.95);
+    cell.setFillStyle(isActive ? COLORS.scoreText : COLORS.road, isActive ? 1 : 0.95);
     label.setColor(isActive ? '#04110b' : '#f7fbff');
   });
 }
@@ -566,10 +563,10 @@ function handleNameEntry(scene, time) {
   if (time < scene.state.nameEntry.moveCooldownUntil) return;
 
   let moved = false;
-  if (scene.controls.held['P1_U'] && scene.state.nameEntry.row > 0) { scene.state.nameEntry.row -= 1; moved = true; }
-  if (scene.controls.held['P1_D'] && scene.state.nameEntry.row < LETTER_GRID.length - 1) { scene.state.nameEntry.row += 1; moved = true; }
-  if (scene.controls.held['P1_L'] && scene.state.nameEntry.col > 0) { scene.state.nameEntry.col -= 1; moved = true; }
-  if (scene.controls.held['P1_R'] && scene.state.nameEntry.col < LETTER_GRID[scene.state.nameEntry.row].length - 1) { scene.state.nameEntry.col += 1; moved = true; }
+  if (consumePressed(scene, 'P1_U') && scene.state.nameEntry.row > 0) { scene.state.nameEntry.row -= 1; moved = true; }
+  if (consumePressed(scene, 'P1_D') && scene.state.nameEntry.row < LETTER_GRID.length - 1) { scene.state.nameEntry.row += 1; moved = true; }
+  if (consumePressed(scene, 'P1_L') && scene.state.nameEntry.col > 0) { scene.state.nameEntry.col -= 1; moved = true; }
+  if (consumePressed(scene, 'P1_R') && scene.state.nameEntry.col < LETTER_GRID[scene.state.nameEntry.row].length - 1) { scene.state.nameEntry.col += 1; moved = true; }
 
   if (moved) {
     scene.state.nameEntry.col = Math.min(scene.state.nameEntry.col, LETTER_GRID[scene.state.nameEntry.row].length - 1);
