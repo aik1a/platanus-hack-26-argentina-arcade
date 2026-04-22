@@ -3,7 +3,7 @@
 
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
-const STORAGE_KEY = 'drive-thru-rush-highscores';
+const STORAGE_KEY = 'hot-deploy-highscores';
 const MAX_HIGH_SCORES = 10;
 const WINNING_NAME_LENGTH = 3;
 const MATCH_TIME_LIMIT_MS = 120000; // 2 minutes
@@ -186,13 +186,13 @@ function updateBackgroundForMode(scene) {
 
 function createHud(scene) {
   scene.hud = {};
-  scene.hud.p1ScoreTitle = scene.add.text(40, 20, 'BURGERTRONIC', { fontFamily: 'monospace', fontSize: '20px', color: '#ffcc00', fontStyle: 'bold' });
+  scene.hud.p1ScoreTitle = scene.add.text(40, 20, 'FORK BURGER', { fontFamily: 'monospace', fontSize: '20px', color: '#ffcc00', fontStyle: 'bold' });
   scene.hud.p1ScoreValue = scene.add.text(40, 50, 'SCORE: 0', { fontFamily: 'monospace', fontSize: '20px', color: '#e1ff00' });
   scene.hud.p1Lives = scene.add.text(GAME_WIDTH - 150, 40, 'LIVES: 3', { fontFamily: 'monospace', fontSize: '20px', color: '#ff6ec7', fontStyle: 'bold' });
   
   scene.hud.timeCombo = scene.add.text(40, GAME_HEIGHT - 40, 'TIME 00:00   COMBO x1', { fontFamily: 'monospace', fontSize: '18px', color: '#f7ffd8' });
 
-  scene.hud.p2ScoreTitle = scene.add.text(40, GAME_HEIGHT - 60, 'TACOSAURUS', { fontFamily: 'monospace', fontSize: '20px', color: '#ff3b3b', fontStyle: 'bold' });
+  scene.hud.p2ScoreTitle = scene.add.text(40, GAME_HEIGHT - 60, 'TACO STACK', { fontFamily: 'monospace', fontSize: '20px', color: '#ff3b3b', fontStyle: 'bold' });
   scene.hud.p2ScoreValue = scene.add.text(40, GAME_HEIGHT - 30, 'SCORE: 0', { fontFamily: 'monospace', fontSize: '20px', color: '#ff3b3b' });
   scene.hud.p2Lives = scene.add.text(GAME_WIDTH - 150, GAME_HEIGHT - 40, 'LIVES: 3', { fontFamily: 'monospace', fontSize: '20px', color: '#ff6ec7', fontStyle: 'bold' });
 }
@@ -241,8 +241,8 @@ function createStartScreen(scene) {
   scene.startScreen.container = c;
   c.setDepth(10);
   c.add(scene.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, COLORS.overlay, 0.97));
-  c.add(scene.add.text(GAME_WIDTH / 2, 150, 'DRIVE-THRU RUSH', { fontFamily: 'monospace', fontSize: '42px', color: '#ffcc00', fontStyle: 'bold' }).setOrigin(0.5));
-  c.add(scene.add.text(GAME_WIDTH / 2, 200, 'BURGERTRONIC vs TACOSAURUS', { fontFamily: 'monospace', fontSize: '20px', color: '#ff3b3b', fontStyle: 'bold' }).setOrigin(0.5));
+  c.add(scene.add.text(GAME_WIDTH / 2, 150, 'HOT DEPLOY', { fontFamily: 'monospace', fontSize: '42px', color: '#ffcc00', fontStyle: 'bold' }).setOrigin(0.5));
+  c.add(scene.add.text(GAME_WIDTH / 2, 200, 'FORK BURGER vs TACO STACK', { fontFamily: 'monospace', fontSize: '20px', color: '#ff3b3b', fontStyle: 'bold' }).setOrigin(0.5));
   
   scene.startScreen.modes = [];
   scene.startScreen.modes.push(scene.add.text(GAME_WIDTH / 2, 300, '1 PLAYER', { fontFamily: 'monospace', fontSize: '24px', color: '#f7ffd8' }).setOrigin(0.5));
