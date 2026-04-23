@@ -19,6 +19,7 @@ const COLORS = {
   itemIceCream: 0xff9ec7,
   itemTaco: 0xf7c948,
   itemBurrito: 0x7a4a1e,
+  itemNachos: 0xffaa00,
   lifeActive: 0xff6ec7,
   scoreText: 0xe1ff00,
   carBody: 0x5a6c8c,
@@ -52,8 +53,17 @@ const LETTER_GRID = [
   ['DEL', 'END'],
 ];
 
-const LANES_1P = [200, 380];
-const LANES_2P = [130, 220, 380, 470]; // 0,1 for P1. 2,3 for P2.
+const ZONE_CALLE = 160;
+const ZONE_VENTANILLA = 80;
+const ZONE_COCINA = 320;
+const ZONE_MOSTRADOR = 80;
+const ZONE_TIENDA = 160;
+
+const X_CALLE = 0;
+const X_VENTANILLA = X_CALLE + ZONE_CALLE;
+const X_COCINA = X_VENTANILLA + ZONE_VENTANILLA;
+const X_MOSTRADOR = X_COCINA + ZONE_COCINA;
+const X_TIENDA = X_MOSTRADOR + ZONE_MOSTRADOR;
 
 const config = {
   type: Phaser.AUTO,
@@ -72,7 +82,7 @@ const config = {
 
 new Phaser.Game(config);
 
-function preload() {}
+function preload() { }
 
 function create() {
   const scene = this;
@@ -82,13 +92,9 @@ function create() {
     highScores: [],
     mode: '1P',
     menu: { cursor: 0 },
-    playing: {
-      cars: [],
-      nextSpawnTime: 0,
-      timeElapsed: 0,
-    },
-    p1: { score: 0, comboStreak: 0, comboMult: 1, lives: 3, laneIndex: 0, lockoutUntil: 0, obj: null },
-    p2: { score: 0, comboStreak: 0, comboMult: 1, lives: 3, laneIndex: 0, lockoutUntil: 0, obj: null },
+    playing: { timeElapsed: 0 },
+    p1: { score: 0, comboStreak: 0, comboMult: 1, lives: 3, x: 400, y: 300, dir: 'down', body: null, ind: null },
+    p2: { score: 0, comboStreak: 0, comboMult: 1, lives: 3, x: 400, y: 450, dir: 'down', body: null, ind: null },
     nameEntry: { letters: [], row: 0, col: 0, moveCooldownUntil: 0, winner: '' }
   };
 
@@ -98,13 +104,13 @@ function create() {
   createStartScreen(scene);
   createEndGameUi(scene);
   createControls(scene);
-  
+
   showStartScreen(scene);
 
   loadHighScores().then(scores => {
-      scene.state.highScores = scores;
+    scene.state.highScores = scores;
   }).catch(() => {
-      scene.state.highScores = [];
+    scene.state.highScores = [];
   });
 }
 
@@ -158,26 +164,18 @@ function consumePressed(scene, code) {
 function createBackground(scene) {
   scene.bgElements = scene.add.group();
   scene.bgElements.add(scene.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 760, 560, 0x000000, 0).setStrokeStyle(4, COLORS.frame, 0.8));
-  
-  // We will dynamic draw the lines later based on mode, for now draw 4 lanes placeholders
-  scene.laneRects = [];
-  scene.divider = scene.add.rectangle(GAME_WIDTH / 2, 300, 760, 8, COLORS.frame).setVisible(false);
-  
-  for (let i=0; i<4; i++) {
-      let r = scene.add.rectangle(GAME_WIDTH / 2, 0, 760, 60, COLORS.road);
-      let dash = scene.add.rectangle(GAME_WIDTH / 2, 0, 760, 2, COLORS.white, 0.3);
-      scene.laneRects.push({ r, dash });
-      scene.bgElements.add(r); scene.bgElements.add(dash);
-  }
+
+  scene.bgElements.add(scene.add.rectangle(X_CALLE + ZONE_CALLE / 2, GAME_HEIGHT / 2, ZONE_CALLE, GAME_HEIGHT, COLORS.road));
+  scene.bgElements.add(scene.add.rectangle(X_VENTANILLA + ZONE_VENTANILLA / 2, GAME_HEIGHT / 2, ZONE_VENTANILLA, GAME_HEIGHT, COLORS.overlay, 0.5));
+  scene.bgElements.add(scene.add.rectangle(X_COCINA + ZONE_COCINA / 2, GAME_HEIGHT / 2, ZONE_COCINA, GAME_HEIGHT, 0x222222));
+  scene.bgElements.add(scene.add.rectangle(X_MOSTRADOR + ZONE_MOSTRADOR / 2, GAME_HEIGHT / 2, ZONE_MOSTRADOR, GAME_HEIGHT, COLORS.overlay, 0.5));
+  scene.bgElements.add(scene.add.rectangle(X_TIENDA + ZONE_TIENDA / 2, GAME_HEIGHT / 2, ZONE_TIENDA, GAME_HEIGHT, 0x111111));
+
+  scene.divider = scene.add.rectangle(GAME_WIDTH / 2, 300, GAME_WIDTH, 8, COLORS.frame).setVisible(false);
 }
 
 function updateBackgroundForMode(scene) {
-    const lanes = scene.state.mode === '1P' ? LANES_1P : LANES_2P;
-    scene.laneRects.forEach((rectData, i) => {
-        rectData.r.setY(lanes[i]);
-        rectData.dash.setY(lanes[i]);
-    });
-    scene.divider.setVisible(scene.state.mode === '2P');
+  scene.divider.setVisible(scene.state.mode === '2P');
 }
 
 function S(sz, col, bold, extra) {
@@ -200,39 +198,66 @@ function createHud(scene) {
 function refreshHud(scene) {
   scene.hud.p1ScoreValue.setText('SCORE: ' + scene.state.p1.score);
   scene.hud.p1Lives.setText('LIVES: ' + scene.state.p1.lives);
-  
+
   if (scene.state.mode === '2P') {
-      scene.hud.timeCombo.setVisible(false);
-      scene.hud.p2ScoreTitle.setVisible(true);
-      scene.hud.p2ScoreValue.setVisible(true).setText('SCORE: ' + scene.state.p2.score);
-      scene.hud.p2Lives.setVisible(true).setText('LIVES: ' + scene.state.p2.lives);
+    scene.hud.timeCombo.setVisible(false);
+    scene.hud.p2ScoreTitle.setVisible(true);
+    scene.hud.p2ScoreValue.setVisible(true).setText('SCORE: ' + scene.state.p2.score);
+    scene.hud.p2Lives.setVisible(true).setText('LIVES: ' + scene.state.p2.lives);
   } else {
-      scene.hud.p2ScoreTitle.setVisible(false);
-      scene.hud.p2ScoreValue.setVisible(false);
-      scene.hud.p2Lives.setVisible(false);
-      scene.hud.timeCombo.setVisible(true);
-      const totalSeconds = Math.floor(scene.state.playing.timeElapsed / 1000);
-      const m = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
-      const s = String(totalSeconds % 60).padStart(2, '0');
-      scene.hud.timeCombo.setText('TIME ' + m + ':' + s + '   COMBO x' + scene.state.p1.comboMult);
+    scene.hud.p2ScoreTitle.setVisible(false);
+    scene.hud.p2ScoreValue.setVisible(false);
+    scene.hud.p2Lives.setVisible(false);
+    scene.hud.timeCombo.setVisible(true);
+    const totalSeconds = Math.floor(scene.state.playing.timeElapsed / 1000);
+    const m = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+    const s = String(totalSeconds % 60).padStart(2, '0');
+    scene.hud.timeCombo.setText('TIME ' + m + ':' + s + '   COMBO x' + scene.state.p1.comboMult);
   }
 }
 
 function createGameObjects(scene) {
-  scene.state.p1.obj = scene.add.rectangle(60, 0, 30, 45, COLORS.burgertronic);
-  scene.state.p2.obj = scene.add.rectangle(60, 0, 30, 45, COLORS.tacosaurus);
+  scene.state.p1.obj = createChefGraphics(scene, 0, 0, COLORS.burgertronic);
+
+  scene.state.p2.obj = createChefGraphics(scene, 0, 0, COLORS.tacosaurus);
   scene.state.p2.obj.setVisible(false);
 }
 
+function createChefGraphics(scene, x, y, mainColor) {
+  const g = scene.add.graphics({ x, y });
+  g.mainColor = mainColor;
+  drawChef(g, 'down');
+  return g;
+}
+
+function drawChef(g, dir) {
+  g.clear();
+  g.fillStyle(g.mainColor, 1);
+  g.fillRect(-15, -15, 30, 30);
+  g.fillStyle(COLORS.white, 1);
+  g.fillRect(-12, -25, 24, 10);
+  g.fillRect(-18, -30, 36, 12);
+  g.fillStyle(0x04110b, 1);
+  let ix = -5, iy = -5;
+  if (dir === 'up') iy -= 10;
+  else if (dir === 'down') iy += 10;
+  else if (dir === 'left') ix -= 10;
+  else if (dir === 'right') ix += 10;
+  g.fillRect(ix, iy, 10, 10);
+}
+
 function updateChefPos(scene) {
-  const lanes = scene.state.mode === '1P' ? LANES_1P : LANES_2P;
-  if(scene.state.mode === '1P') {
-      scene.state.p1.obj.setY(lanes[scene.state.p1.laneIndex]);
-      scene.state.p2.obj.setVisible(false);
+  const p1 = scene.state.p1;
+  p1.obj.setPosition(p1.x, p1.y);
+  drawChef(p1.obj, p1.dir);
+
+  const p2 = scene.state.p2;
+  if (scene.state.mode === '2P') {
+    p2.obj.setVisible(true);
+    p2.obj.setPosition(p2.x, p2.y);
+    drawChef(p2.obj, p2.dir);
   } else {
-      scene.state.p2.obj.setVisible(true);
-      scene.state.p1.obj.setY(lanes[scene.state.p1.laneIndex]); // 0 or 1
-      scene.state.p2.obj.setY(lanes[scene.state.p2.laneIndex + 2]); // 2 or 3
+    p2.obj.setVisible(false);
   }
 }
 
@@ -254,26 +279,26 @@ function createStartScreen(scene) {
 }
 
 function updateStartMenuHighlight(scene) {
-    scene.startScreen.modes.forEach((txt, i) => {
-        if (scene.state.menu.cursor === i) {
-            txt.setText(`> ${i===0?'1 PLAYER':'2 PLAYERS'} <`).setColor('#e1ff00');
-        } else {
-            txt.setText(i===0?'1 PLAYER':'2 PLAYERS').setColor('#f7ffd8');
-        }
-    });
+  scene.startScreen.modes.forEach((txt, i) => {
+    if (scene.state.menu.cursor === i) {
+      txt.setText(`> ${i === 0 ? '1 PLAYER' : '2 PLAYERS'} <`).setColor('#e1ff00');
+    } else {
+      txt.setText(i === 0 ? '1 PLAYER' : '2 PLAYERS').setColor('#f7ffd8');
+    }
+  });
 }
 
 function handleStartMenu(scene, time) {
   if (consumePressed(scene, 'P1_D') || consumePressed(scene, 'P2_D')) {
-      scene.state.menu.cursor = (scene.state.menu.cursor + 1) % 2;
-      updateStartMenuHighlight(scene);
+    scene.state.menu.cursor = (scene.state.menu.cursor + 1) % 2;
+    updateStartMenuHighlight(scene);
   }
   if (consumePressed(scene, 'P1_U') || consumePressed(scene, 'P2_U')) {
-      scene.state.menu.cursor = (scene.state.menu.cursor - 1 + 2) % 2;
-      updateStartMenuHighlight(scene);
+    scene.state.menu.cursor = (scene.state.menu.cursor - 1 + 2) % 2;
+    updateStartMenuHighlight(scene);
   }
 
-  if (consumePressed(scene, 'START1') || consumePressed(scene, 'START2')) {
+  if (consumePressed(scene, 'START1') || consumePressed(scene, 'START2') || consumePressed(scene, 'P1_1') || consumePressed(scene, 'P2_1')) {
     scene.startScreen.container.setVisible(false);
     startMatch(scene, scene.state.menu.cursor === 0 ? '1P' : '2P');
   }
@@ -282,15 +307,54 @@ function handleStartMenu(scene, time) {
 function startMatch(scene, mode) {
   scene.state.phase = 'playing';
   scene.state.mode = mode;
-  scene.state.p1 = { score: 0, comboStreak: 0, comboMult: 1, lives: 3, laneIndex: 0, lockoutUntil: 0, obj: scene.state.p1.obj };
-  scene.state.p2 = { score: 0, comboStreak: 0, comboMult: 1, lives: 3, laneIndex: 0, lockoutUntil: 0, obj: scene.state.p2.obj };
-  
-  scene.state.playing.cars.forEach(c => { c.rect.destroy(); c.bubble.destroy(); c.icon.destroy(); });
-  scene.state.playing = { cars: [], nextSpawnTime: 0, timeElapsed: 0 };
-  
+  let p1Y = mode === '1P' ? 300 : 150;
+
+  if (scene.state.playing && scene.state.playing.spawns) {
+    scene.state.playing.spawns.forEach(s => s.g.destroy());
+  }
+  if (scene.state.p1.heldItemGraphics) scene.state.p1.heldItemGraphics.destroy();
+  if (scene.state.p2.heldItemGraphics) scene.state.p2.heldItemGraphics.destroy();
+
+  scene.state.p1 = { ...scene.state.p1, score: 0, comboStreak: 0, comboMult: 1, lives: 3, x: 400, y: p1Y, dir: 'down', heldItem: null, trashCount: 0, heldItemGraphics: null };
+  scene.state.p2 = { ...scene.state.p2, score: 0, comboStreak: 0, comboMult: 1, lives: 3, x: 400, y: 450, dir: 'down', heldItem: null, trashCount: 0, heldItemGraphics: null };
+
+  scene.state.playing = { timeElapsed: 0, spawns: [] };
+  createSpawns(scene);
+
   updateBackgroundForMode(scene);
   updateChefPos(scene);
   refreshHud(scene);
+}
+
+const P1_ITEMS = [
+  { id: 'burger', color: COLORS.itemBurger },
+  { id: 'fries', color: COLORS.itemFries },
+  { id: 'drink', color: COLORS.itemDrink },
+  { id: 'icecream', color: COLORS.itemIceCream },
+];
+const P2_ITEMS = [
+  { id: 'taco', color: COLORS.itemTaco },
+  { id: 'burrito', color: COLORS.itemBurrito },
+  { id: 'drink', color: COLORS.itemDrink },
+  { id: 'nachos', color: COLORS.itemNachos },
+];
+
+function createSpawns(scene) {
+  const s = scene.state.playing.spawns;
+  P1_ITEMS.forEach((item, i) => {
+    let x = X_COCINA + 40 + i * 80;
+    let y = 60;
+    let g = scene.add.circle(x, y, 15, item.color, 0.6);
+    s.push({ x, y, id: item.id, color: item.color, g, p: 'p1' });
+  });
+  if (scene.state.mode === '2P') {
+    P2_ITEMS.forEach((item, i) => {
+      let x = X_COCINA + 40 + i * 80;
+      let y = 540;
+      let g = scene.add.circle(x, y, 15, item.color, 0.6);
+      s.push({ x, y, id: item.id, color: item.color, g, p: 'p2' });
+    });
+  }
 }
 
 function createEndGameUi(scene) {
@@ -331,211 +395,163 @@ function showStartScreen(scene) {
   scene.startScreen.container.setVisible(true);
 }
 
-function getDifficulty(timeElapsedMs) {
-    const progress = Math.min(timeElapsedMs / 120000, 1.0);
-    return {
-        speed: 80 + progress * (180 - 80),
-        spawnDelay: 2500 - progress * (2500 - 900)
-    };
-}
-
 function updatePlaying(scene, time, delta) {
   const pState = scene.state.playing;
   pState.timeElapsed += delta;
-  
+
   if (scene.state.mode === '2P' && pState.timeElapsed >= MATCH_TIME_LIMIT_MS) {
-      if (scene.state.p1.score !== scene.state.p2.score) {
-          endMatch2P(scene, scene.state.p1.score > scene.state.p2.score ? 'P1 WINS ON TIME' : 'P2 WINS ON TIME');
-          return;
-      }
-      // Sudden death let it continue
-  }
-  
-  const diff = getDifficulty(pState.timeElapsed);
-
-  if (pState.timeElapsed > pState.nextSpawnTime) {
-    let numToSpawn = 1;
-    let roll = Phaser.Math.Between(1, 100);
-    // 30% chance for dual spawn after some time
-    if (scene.state.mode === '2P' && pState.timeElapsed > 30000 && roll <= 30) {
-        numToSpawn = 2;
+    if (scene.state.p1.score !== scene.state.p2.score) {
+      endMatch2P(scene, scene.state.p1.score > scene.state.p2.score ? 'P1 WINS ON TIME' : 'P2 WINS ON TIME');
+      return;
     }
-    
-    // Pick different lanes
-    let pickedLanes = [];
-    while (pickedLanes.length < numToSpawn) {
-        let maxLanes = scene.state.mode === '1P' ? 2 : 4;
-        let l = Phaser.Math.Between(0, maxLanes - 1);
-        if (!pickedLanes.includes(l)) pickedLanes.push(l);
-    }
-    
-    pickedLanes.forEach(l => spawnCar(scene, l));
-    pState.nextSpawnTime = pState.timeElapsed + diff.spawnDelay;
+    // Sudden death let it continue
   }
 
-  // Move matching cars
-  for (let i = pState.cars.length - 1; i >= 0; i--) {
-    const car = pState.cars[i];
-    car.x -= (diff.speed * delta) / 1000;
-    car.rect.setX(car.x);
-    car.bubble.setX(car.x);
-    car.icon.setX(car.x);
-
-    if (car.x < 90) {
-       let laneOwner = 'p1';
-       if (scene.state.mode === '2P' && car.laneIdx >= 2) laneOwner = 'p2';
-       
-       car.rect.destroy(); car.bubble.destroy(); car.icon.destroy();
-       pState.cars.splice(i, 1);
-       loseLife(scene, laneOwner);
-       if (scene.state.phase !== 'playing') return; // Game over triggered
-    }
-  }
-
-  handleChefMovement(scene);
-  handleServeInput(scene, time);
+  handleChefMovement(scene, delta);
+  handleInteractions(scene);
 
   if (!pState.lastHudUpdate || pState.timeElapsed - pState.lastHudUpdate >= 500) {
-      pState.lastHudUpdate = pState.timeElapsed;
+    pState.lastHudUpdate = pState.timeElapsed;
+    refreshHud(scene);
+  }
+}
+
+function handleInteractions(scene) {
+  checkPlayerInteraction(scene, scene.state.p1, 'P1', 'p1');
+  if (scene.state.mode === '2P') {
+    checkPlayerInteraction(scene, scene.state.p2, 'P2', 'p2');
+  }
+}
+
+function checkPlayerInteraction(scene, p, prefix, pKey) {
+  if (consumePressed(scene, prefix + '_1')) {
+    if (p.heldItem === null) {
+      const spawns = scene.state.playing.spawns.filter(s => s.p === pKey);
+      for (let s of spawns) {
+        if (Phaser.Math.Distance.Between(p.x, p.y, s.x, s.y) < 40) {
+          p.heldItem = s.id;
+          p.heldItemGraphics = scene.add.circle(p.x, p.y - 30, 10, s.color, 1);
+          break;
+        }
+      }
+    }
+  }
+
+  if (consumePressed(scene, prefix + '_2')) {
+    if (p.heldItem !== null) {
+      p.heldItemGraphics.destroy();
+      p.heldItemGraphics = null;
+      p.heldItem = null;
+      p.trashCount++;
+      p.comboStreak = 0;
+      p.comboMult = 1;
+      if (p.trashCount >= 3) {
+        p.trashCount = 0;
+        loseLife(scene, pKey);
+      }
       refreshHud(scene);
+    }
+  }
+
+  if (consumePressed(scene, prefix + '_3')) {
+    if (p.heldItem !== null) {
+      p.heldItemGraphics.destroy();
+      p.heldItemGraphics = null;
+      p.heldItem = null;
+      p.score += 100 * p.comboMult;
+      p.comboStreak++;
+      if (p.comboStreak % 5 === 0) p.comboMult = Math.min(p.comboMult + 1, 8);
+      p.trashCount = 0;
+      refreshHud(scene);
+    }
+  }
+
+  if (p.heldItemGraphics) {
+    p.heldItemGraphics.setPosition(p.x, p.y - 30);
   }
 }
 
 function loseLife(scene, playerKey) {
-    scene.state[playerKey].lives--;
-    scene.state[playerKey].comboStreak = 0;
-    scene.state[playerKey].comboMult = 1;
-    refreshHud(scene);
+  scene.state[playerKey].lives--;
+  scene.state[playerKey].comboStreak = 0;
+  scene.state[playerKey].comboMult = 1;
+  refreshHud(scene);
 
-    if (scene.state[playerKey].lives <= 0) {
-        if (scene.state.mode === '1P') {
-            showGameOver(scene, 'p1');
-        } else {
-            let winner = playerKey === 'p1' ? 'P2 WINS (SURVIVAL)' : 'P1 WINS (SURVIVAL)';
-            endMatch2P(scene, winner);
-        }
+  if (scene.state[playerKey].lives <= 0) {
+    if (scene.state.mode === '1P') {
+      showGameOver(scene, 'p1');
+    } else {
+      let winner = playerKey === 'p1' ? 'P2 WINS (SURVIVAL)' : 'P1 WINS (SURVIVAL)';
+      endMatch2P(scene, winner);
     }
+  }
 }
 
 function showGameOver(scene, playerKey) {
-    scene.state.phase = 'gameover';
-    scene.state.nameEntry.winner = playerKey;
-    scene.endGame.scoreDisplay.setText(`FINAL SCORE: ${scene.state[playerKey].score}`);
-    scene.state.nameEntry.letters = [];
-    scene.state.nameEntry.row = 0;
-    scene.state.nameEntry.col = 0;
-    updateNameEntryHighlights(scene);
-    updateNameText(scene);
-    scene.endGame.container.setVisible(true);
+  scene.state.phase = 'gameover';
+
+  if (scene.state.playing && scene.state.playing.spawns) {
+    scene.state.playing.spawns.forEach(s => s.g.destroy());
+    scene.state.playing.spawns = [];
+  }
+  if (scene.state.p1.heldItemGraphics) { scene.state.p1.heldItemGraphics.destroy(); scene.state.p1.heldItemGraphics = null; }
+  if (scene.state.p2.heldItemGraphics) { scene.state.p2.heldItemGraphics.destroy(); scene.state.p2.heldItemGraphics = null; }
+
+  scene.state.nameEntry.winner = playerKey;
+  scene.endGame.scoreDisplay.setText(`FINAL SCORE: ${scene.state[playerKey].score}`);
+  scene.state.nameEntry.letters = [];
+  scene.state.nameEntry.row = 0;
+  scene.state.nameEntry.col = 0;
+  updateNameEntryHighlights(scene);
+  updateNameText(scene);
+  scene.endGame.container.setVisible(true);
 }
 
 function endMatch2P(scene, message) {
-    scene.state.phase = 'gameover';
-    scene.endGame.title.setText(message);
-    let topScorer = scene.state.p1.score >= scene.state.p2.score ? 'p1' : 'p2';
-    scene.state.nameEntry.winner = topScorer;
-    scene.endGame.scoreDisplay.setText(`HIGHEST SCORE: ${scene.state[topScorer].score}`);
-    scene.state.nameEntry.letters = [];
-    scene.state.nameEntry.row = 0; scene.state.nameEntry.col = 0;
-    updateNameEntryHighlights(scene);
-    updateNameText(scene);
-    scene.endGame.container.setVisible(true);
+  scene.state.phase = 'gameover';
+
+  if (scene.state.playing && scene.state.playing.spawns) {
+    scene.state.playing.spawns.forEach(s => s.g.destroy());
+    scene.state.playing.spawns = [];
+  }
+  if (scene.state.p1.heldItemGraphics) { scene.state.p1.heldItemGraphics.destroy(); scene.state.p1.heldItemGraphics = null; }
+  if (scene.state.p2.heldItemGraphics) { scene.state.p2.heldItemGraphics.destroy(); scene.state.p2.heldItemGraphics = null; }
+
+  scene.endGame.title.setText(message);
+  let topScorer = scene.state.p1.score >= scene.state.p2.score ? 'p1' : 'p2';
+  scene.state.nameEntry.winner = topScorer;
+  scene.endGame.scoreDisplay.setText(`HIGHEST SCORE: ${scene.state[topScorer].score}`);
+  scene.state.nameEntry.letters = [];
+  scene.state.nameEntry.row = 0; scene.state.nameEntry.col = 0;
+  updateNameEntryHighlights(scene);
+  updateNameText(scene);
+  scene.endGame.container.setVisible(true);
 }
 
-function handleChefMovement(scene) {
-  if (consumePressed(scene, 'P1_U')) {
-      if (scene.state.p1.laneIndex > 0) { scene.state.p1.laneIndex--; updateChefPos(scene); }
-  }
-  if (consumePressed(scene, 'P1_D')) {
-      if (scene.state.p1.laneIndex < 1) { scene.state.p1.laneIndex++; updateChefPos(scene); }
-  }
-  
+function handleChefMovement(scene, delta) {
+  const moveSpeed = 4 * (delta / 16.66);
+
+  movePlayer(scene, scene.state.p1, 'P1', moveSpeed, scene.state.mode === '1P' ? [0, 600] : [0, 300]);
+
   if (scene.state.mode === '2P') {
-      if (consumePressed(scene, 'P2_U')) {
-          if (scene.state.p2.laneIndex > 0) { scene.state.p2.laneIndex--; updateChefPos(scene); }
-      }
-      if (consumePressed(scene, 'P2_D')) {
-          if (scene.state.p2.laneIndex < 1) { scene.state.p2.laneIndex++; updateChefPos(scene); }
-      }
+    movePlayer(scene, scene.state.p2, 'P2', moveSpeed, [300, 600]);
   }
+
+  updateChefPos(scene);
 }
 
-function spawnCar(scene, laneIdx) {
-  const itemType = Phaser.Math.Between(0, 3);
-  const lanes = scene.state.mode === '1P' ? LANES_1P : LANES_2P;
-  const laneY = lanes[laneIdx]; 
-  const rect = scene.add.rectangle(770, laneY, 50, 40, COLORS.carBody);
-  const bubble = scene.add.rectangle(770, laneY - 40, 22, 22, COLORS.white);
-  
-  let itemColor;
-  let isP1 = scene.state.mode === '1P' || laneIdx < 2;
-  
-  if (isP1) {
-      if (itemType === 0) itemColor = COLORS.itemBurger;
-      else if (itemType === 1) itemColor = COLORS.itemFries;
-      else if (itemType === 2) itemColor = COLORS.itemDrink;
-      else itemColor = COLORS.itemIceCream;
-  } else {
-      if (itemType === 0) itemColor = COLORS.itemTaco;
-      else if (itemType === 1) itemColor = COLORS.itemBurrito;
-      else if (itemType === 2) itemColor = COLORS.itemDrink;
-      else itemColor = COLORS.tacosaurus;
-  }
-  
-  const icon = scene.add.rectangle(770, laneY - 40, 14, 14, itemColor);
+function movePlayer(scene, p, prefix, speed, yBounds) {
+  let dx = 0; let dy = 0;
+  if (scene.controls.held[prefix + '_U']) { dy -= speed; p.dir = 'up'; }
+  if (scene.controls.held[prefix + '_D']) { dy += speed; p.dir = 'down'; }
+  if (scene.controls.held[prefix + '_L']) { dx -= speed; p.dir = 'left'; }
+  if (scene.controls.held[prefix + '_R']) { dx += speed; p.dir = 'right'; }
 
-  scene.state.playing.cars.push({ x: 770, y: laneY, item: itemType, rect, bubble, icon, laneIdx });
-}
+  p.x += dx;
+  p.y += dy;
 
-function handleServeInput(scene, time) {
-  handlePlayerServe(scene, time, 'p1');
-  if (scene.state.mode === '2P') {
-      handlePlayerServe(scene, time, 'p2');
-  }
-}
-
-function handlePlayerServe(scene, time, playerKey) {
-  if (scene.state[playerKey].lockoutUntil > time) return;
-
-  let servedItem = -1;
-  const px = playerKey === 'p1' ? 'P1' : 'P2';
-  for (let b = 1; b <= 4; b++) {
-    if (consumePressed(scene, px + '_' + b)) { servedItem = b - 1; break; }
-  }
-
-  if (servedItem !== -1) {
-    const activeLane = playerKey === 'p1' ? scene.state.p1.laneIndex : scene.state.p2.laneIndex + 2;
-    let closestCar = null, closestIdx = -1;
-
-    scene.state.playing.cars.forEach((c, idx) => {
-      if (c.laneIdx === activeLane && c.x >= 100 && c.x <= 180) {
-        if (!closestCar || c.x < closestCar.x) { closestCar = c; closestIdx = idx; }
-      }
-    });
-
-    if (closestCar) {
-      if (closestCar.item === servedItem) {
-        scene.state[playerKey].score += Math.floor(100 * scene.state[playerKey].comboMult);
-        scene.state[playerKey].comboStreak++;
-        let streak = scene.state[playerKey].comboStreak;
-        if (streak >= 10) scene.state[playerKey].comboMult = 3;
-        else if (streak >= 5) scene.state[playerKey].comboMult = 2;
-        else if (streak >= 3) scene.state[playerKey].comboMult = 1.5;
-        
-        scene.state[playerKey].obj.setScale(1.1, 1);
-        scene.time.delayedCall(100, () => { if(scene.state[playerKey].obj) scene.state[playerKey].obj.setScale(1, 1); });
-
-        closestCar.rect.destroy(); closestCar.bubble.destroy(); closestCar.icon.destroy();
-        scene.state.playing.cars.splice(closestIdx, 1);
-        refreshHud(scene);
-      } else {
-        scene.state[playerKey].comboStreak = 0;
-        scene.state[playerKey].comboMult = 1;
-        scene.state[playerKey].lockoutUntil = time + 500;
-        refreshHud(scene);
-      }
-    }
-  }
+  p.x = Phaser.Math.Clamp(p.x, X_COCINA + 15, X_COCINA + ZONE_COCINA - 15);
+  p.y = Phaser.Math.Clamp(p.y, yBounds[0] + 15, yBounds[1] - 15);
 }
 
 function updateNameEntryHighlights(scene) {
@@ -598,19 +614,19 @@ async function loadHighScores() {
 async function saveScoreAndReturn(scene) {
   let nameStr = scene.state.nameEntry.letters.join('').trim();
   if (!nameStr) nameStr = '???';
-  
+
   const sc = scene.state[scene.state.nameEntry.winner].score;
   const entry = { name: nameStr, score: sc, mode: scene.state.mode, date: new Date().toISOString() };
-  
+
   const newHighScores = [...scene.state.highScores, entry];
   newHighScores.sort((a, b) => b.score - a.score);
   const toSave = newHighScores.slice(0, MAX_HIGH_SCORES);
   scene.state.highScores = toSave;
-  
+
   if (window.platanusArcadeStorage) {
-    try { await window.platanusArcadeStorage.set(STORAGE_KEY, toSave); } catch(e) { }
+    try { await window.platanusArcadeStorage.set(STORAGE_KEY, toSave); } catch (e) { }
   }
-  
+
   scene.endGame.container.setVisible(false);
   scene.endGame.title.setText('GAME OVER'); // reset for next time
   showStartScreen(scene);
