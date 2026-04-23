@@ -82,8 +82,8 @@ const CX_MOSTRADOR = X_MOSTRADOR + ZONE_MOSTRADOR_W / 2; // 510
 const CX_TIENDA = X_TIENDA + ZONE_TIENDA_W / 2; // 580
 
 // Límites del chef en X (puede asomarse a ambos lados)
-const CHEF_X_MIN = X_VENT + 5;           // 85  — se asoma a la ventanilla izq
-const CHEF_X_MAX = X_MOSTRADOR + 55;     // 535 — se asoma al mostrador der
+const CHEF_X_MIN = X_COCINA + 20;       // 160 — no puede entrar a la ventanilla
+const CHEF_X_MAX = X_MOSTRADOR - 20;    // 460 — no puede entrar al mostrador
 
 // Sistema de autos — columna única vertical
 const CAR_X = CX_VENT;    // 110 — x fija del auto, siempre la misma
@@ -559,35 +559,10 @@ function checkPlayerInteraction(scene, p, prefix, pKey) {
 
   if (consumePressed(scene, prefix + '_3')) {
     if (p.heldItem !== null) {
-      const lanes = getLanesForPlayer(scene, pKey);
-      const chefLaneIndex = getChefLane(p.y, lanes);
-      const laneY = lanes[chefLaneIndex];
-
-      const candidateCars = scene.state.playing.cars.filter(c =>
-        !c.served &&
-        c.owner === pKey &&
-        Math.abs(c.y - laneY) < 50 &&
-        c.x >= 5 && c.x <= X_COCINA + 20 &&
-        p.x <= X_COCINA - 10
-      );
-
-      if (candidateCars.length > 0) {
-        candidateCars.sort((a, b) => a.x - b.x);
-        const targetCar = candidateCars[0];
-        if (targetCar.item === p.heldItem) {
-          targetCar.served = true;
-          p.score += 100 * p.comboMult;
-          p.comboStreak++;
-          if (p.comboStreak % 5 === 0) p.comboMult = Math.min(p.comboMult + 1, 8);
-          p.trashCount = 0;
-        } else {
-          p.comboStreak = 0;
-          p.comboMult = 1;
-        }
-      }
       p.heldItemGraphics.destroy();
       p.heldItemGraphics = null;
       p.heldItem = null;
+      // Entrega real se implementa en Sprint 3B
       refreshHud(scene);
     }
   }
@@ -663,12 +638,14 @@ function endMatch2P(scene, message) {
 }
 
 function handleChefMovement(scene, delta) {
-  const moveSpeed = 4 * (delta / 16.66);
+  const base = 4 * (delta / 16.66);
+  const p1Speed = base * getComboSpeed(scene.state.p1.comboMult);
+  const p2Speed = base * getComboSpeed(scene.state.p2.comboMult);
 
-  movePlayer(scene, scene.state.p1, 'P1', moveSpeed, scene.state.mode === '1P' ? [0, 600] : [0, 300]);
+  movePlayer(scene, scene.state.p1, 'P1', p1Speed, [0, 600]);
 
   if (scene.state.mode === '2P') {
-    movePlayer(scene, scene.state.p2, 'P2', moveSpeed, [300, 600]);
+    movePlayer(scene, scene.state.p2, 'P2', p2Speed, [0, 600]);
   }
 
   updateChefPos(scene);
