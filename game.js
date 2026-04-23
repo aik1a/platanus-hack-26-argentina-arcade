@@ -89,6 +89,7 @@ const CHEF_X_MAX = X_MOSTRADOR - 20;    // 460 — no puede entrar al mostrador
 const CAR_X = CX_VENT;    // 110 — x fija del auto, siempre la misma
 const CAR_Y_START = -60;        // aparece arriba, fuera de pantalla
 const CAR_Y_END = GAME_HEIGHT + 60; // se escapa por abajo
+const CAR_WAIT_Y = 500; // y donde el auto se detiene a esperar
 
 // Zona donde el chef puede entregar al auto (debe estar cerca de la ventanilla)
 const SERVE_AUTO_X_MAX = X_COCINA - 5;    // 135 — chef debe estar a x <= 135
@@ -513,6 +514,7 @@ function updatePlaying(scene, time, delta) {
 
   handleChefMovement(scene, delta);
   handleInteractions(scene);
+  updateCars(scene, delta);
 
   if (!pState.lastHudUpdate || pState.timeElapsed - pState.lastHudUpdate >= 500) {
     pState.lastHudUpdate = pState.timeElapsed;
@@ -559,10 +561,49 @@ function checkPlayerInteraction(scene, p, prefix, pKey) {
 
   if (consumePressed(scene, prefix + '_3')) {
     if (p.heldItem !== null) {
+
+      const nearVentanilla = p.x <= X_COCINA + (ZONE_COCINA_W / 3);
+
+      if (nearVentanilla && scene.state.playing.cars.length > 0) {
+        const candidates = scene.state.playing.cars.filter(c =>
+          !c.served && c.owner === pKey
+        );
+
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => b.y - a.y);
+          const car = candidates[0];
+
+          if (car.item === p.heldItem) {
+            // Entrega correcta — poof y marcar como servido
+            spawnPoof(scene, CAR_X, car.y);
+            car.served = true;
+            p.score += 100 * p.comboMult;
+            p.comboStreak++;
+            const threshold = COMBO_THRESHOLDS[
+              Math.min(p.comboMult - 1, COMBO_THRESHOLDS.length - 1)
+            ];
+            if (p.comboStreak >= threshold) {
+              p.comboMult = Math.min(p.comboMult + 1, 8);
+              p.comboStreak = 0;
+            }
+            p.trashCount = 0;
+          } else {
+            // Entrega incorrecta — bajar un escalón de combo
+            p.comboMult = Math.max(p.comboMult - 1, 1);
+            p.comboStreak = 0;
+            // Respiro de spawn tras fallar
+            scene.state.playing.nextCarSpawn = Math.max(
+              scene.state.playing.nextCarSpawn,
+              scene.state.playing.timeElapsed + FAIL_RELIEF_MS
+            );
+          }
+        }
+      }
+
+      // En cualquier caso el chef suelta el ítem
       p.heldItemGraphics.destroy();
       p.heldItemGraphics = null;
       p.heldItem = null;
-      // Entrega real se implementa en Sprint 3B
       refreshHud(scene);
     }
   }
@@ -741,6 +782,139 @@ async function saveScoreAndReturn(scene) {
   scene.endGame.container.setVisible(false);
   scene.endGame.title.setText('GAME OVER'); // reset for next time
   showStartScreen(scene);
+}
+
+function spawnPoof(scene, x, y) {
+  const g = scene.add.graphics();
+  g.fillStyle(0xffffff, 0.8);
+  g.fillCircle(0, 0, 12);
+  g.setPosition(x, y);
+  g.setDepth(10);
+
+  scene.tweens.add({
+    targets: g,
+    scaleX: 2.5,
+    scaleY: 2.5,
+    alpha: 0,
+    duration: 200,
+    ease: 'Power2',
+    onComplete: () => g.destroy()
+  });
+}
+
+function spawnCar(scene) {
+  const itemPool = P1_ITEMS;
+  const item = itemPool[Math.floor(Math.random() * itemPool.length)];
+
+  // Verificar que no haya otro auto muy cerca del tope
+  // para evitar superposición al spawnear
+  const tooClose = scene.state.playing.cars.some(c => c.y < 80);
+  if (tooClose) return;
+
+  // Dibujar el auto orientado verticalmente
+  const g = scene.add.graphics();
+  g.fillStyle(COLORS.carBody, 1);
+  g.fillRect(-13, -22, 26, 44);   // cuerpo principal
+  g.fillStyle(0xaaeeff, 1);
+  g.fillRect(-9, -18, 18, 20);    // parabrisas
+  g.fillStyle(0x222222, 1);
+  g.fillCircle(-10, 24, 6);       // rueda trasera izq
+  g.fillCircle(10, 24, 6);        // rueda trasera der
+  g.fillCircle(-10, -24, 6);      // rueda delantera izq
+  g.fillCircle(10, -24, 6);       // rueda delantera der
+  g.setPosition(CAR_X, CAR_Y_START);
+  g.setDepth(5);
+
+  // Ícono del pedido — cuadrado blanco con círculo de color
+  const labelG = scene.add.graphics();
+  labelG.fillStyle(0xf7ffd8, 1);
+  labelG.fillRect(-13, -13, 26, 26);
+  labelG.fillStyle(item.color, 1);
+  labelG.fillCircle(0, 0, 8);
+  labelG.setPosition(CAR_X + 30, CAR_Y_START);
+  labelG.setDepth(5);
+
+  scene.state.playing.cars.push({
+    y: CAR_Y_START,
+    item: item.id,
+    itemColor: item.color,
+    owner: 'p1',
+    served: false,
+    waiting: false,
+    waitTimer: 0,
+    g,
+    labelG,
+  });
+}
+
+function updateCars(scene, delta) {
+  const ps = scene.state.playing;
+  if (!ps.cars) return;
+
+  // Spawnear nuevo auto si corresponde
+  if (ps.timeElapsed >= ps.nextCarSpawn) {
+    spawnCar(scene);
+    const diff = getDifficulty(ps.timeElapsed);
+    ps.nextCarSpawn = ps.timeElapsed + diff.carSpawnInterval
+      + Math.random() * 1000;
+  }
+
+  const dt = delta / 1000;
+  const speed = getDifficulty(ps.timeElapsed).carSpeed;
+  const waitLimit = getDifficulty(ps.timeElapsed).clientWait;
+  const cars = ps.cars;
+
+  for (let i = cars.length - 1; i >= 0; i--) {
+    const c = cars[i];
+
+    // Auto ya atendido — destruir inmediatamente
+    if (c.served) {
+      c.g.destroy();
+      c.labelG.destroy();
+      cars.splice(i, 1);
+      continue;
+    }
+
+    // Chequear blocker — no bajar si hay otro auto muy cerca adelante
+    const blocker = cars.find((other, j) =>
+      j !== i &&
+      !other.served &&
+      other.y > c.y &&
+      other.y - c.y < 70
+    );
+
+    if (c.waiting) {
+      // Auto detenido en zona de espera — acumular tiempo
+      c.waitTimer += delta;
+
+      if (c.waitTimer >= waitLimit) {
+        // Timeout — se escapa sin poof, pierde vida
+        c.g.destroy();
+        c.labelG.destroy();
+        cars.splice(i, 1);
+        loseLife(scene, c.owner);
+      }
+      // Si está esperando no se mueve aunque no haya blocker
+      continue;
+    }
+
+    // Auto en movimiento — aplicar blocker
+    if (blocker) continue;
+
+    // Mover hacia abajo
+    c.y += speed * dt;
+    c.g.setPosition(CAR_X, c.y);
+    c.labelG.setPosition(CAR_X + 30, c.y);
+
+    // Llegó a la zona de espera — detenerse
+    if (c.y >= CAR_WAIT_Y) {
+      c.y = CAR_WAIT_Y;
+      c.g.setPosition(CAR_X, CAR_WAIT_Y);
+      c.labelG.setPosition(CAR_X + 30, CAR_WAIT_Y);
+      c.waiting = true;
+      c.waitTimer = 0;
+    }
+  }
 }
 
 function drawDebugGrid(scene) {
