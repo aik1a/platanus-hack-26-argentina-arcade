@@ -3,6 +3,7 @@
 
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
+const DEBUG_GRID = true; // cambiar a false antes de entregar
 const STORAGE_KEY = 'hot-deploy-highscores';
 const MAX_HIGH_SCORES = 10;
 const WINNING_NAME_LENGTH = 3;
@@ -53,17 +54,98 @@ const LETTER_GRID = [
   ['DEL', 'END'],
 ];
 
-const ZONE_CALLE = 160;
-const ZONE_VENTANILLA = 80;
-const ZONE_COCINA = 320;
-const ZONE_MOSTRADOR = 80;
-const ZONE_TIENDA = 160;
+// ═══════════════════════════════════════════════════
+// GRILLA MAESTRA — layout del juego en píxeles
+// Pantalla: 800 x 600 px
+// Las zonas van de izquierda a derecha en modo 1P
+// ═══════════════════════════════════════════════════
 
-const X_CALLE = 0;
-const X_VENTANILLA = X_CALLE + ZONE_CALLE;
-const X_COCINA = X_VENTANILLA + ZONE_VENTANILLA;
-const X_MOSTRADOR = X_COCINA + ZONE_COCINA;
-const X_TIENDA = X_MOSTRADOR + ZONE_MOSTRADOR;
+// Anchos de cada zona
+const ZONE_COLA_W = 80;   // cola visual de pedidos (autos)
+const ZONE_VENT_W = 60;   // ventanilla donde bajan los autos
+const ZONE_COCINA_W = 340;  // zona donde se mueve el chef
+const ZONE_MOSTRADOR_W = 60;   // zona donde esperan clientes peatones
+const ZONE_TIENDA_W = 80;   // cola visual de clientes (pedidos pendientes)
+
+// Posiciones X donde empieza cada zona
+const X_COLA = 0;
+const X_VENT = X_COLA + ZONE_COLA_W;       // 80
+const X_COCINA = X_VENT + ZONE_VENT_W;        // 140
+const X_MOSTRADOR = X_COCINA + ZONE_COCINA_W;      // 480
+const X_TIENDA = X_MOSTRADOR + ZONE_MOSTRADOR_W;   // 540
+
+// Centros útiles de cada zona (para posicionar objetos)
+const CX_COLA = X_COLA + ZONE_COLA_W / 2; // 40
+const CX_VENT = X_VENT + ZONE_VENT_W / 2; // 110  ← columna única de autos
+const CX_COCINA = X_COCINA + ZONE_COCINA_W / 2; // 310  ← centro de la cocina
+const CX_MOSTRADOR = X_MOSTRADOR + ZONE_MOSTRADOR_W / 2; // 510
+const CX_TIENDA = X_TIENDA + ZONE_TIENDA_W / 2; // 580
+
+// Límites del chef en X (puede asomarse a ambos lados)
+const CHEF_X_MIN = X_VENT + 5;           // 85  — se asoma a la ventanilla izq
+const CHEF_X_MAX = X_MOSTRADOR + 55;     // 535 — se asoma al mostrador der
+
+// Sistema de autos — columna única vertical
+const CAR_X = CX_VENT;    // 110 — x fija del auto, siempre la misma
+const CAR_Y_START = -60;        // aparece arriba, fuera de pantalla
+const CAR_Y_END = GAME_HEIGHT + 60; // se escapa por abajo
+
+// Zona donde el chef puede entregar al auto (debe estar cerca de la ventanilla)
+const SERVE_AUTO_X_MAX = X_COCINA - 5;    // 135 — chef debe estar a x <= 135
+// Zona donde el chef puede atender clientes (debe estar cerca del mostrador)
+const SERVE_CLIENT_X_MIN = X_MOSTRADOR - 5; // 475 — chef debe estar a x >= 475
+
+// ═══════════════════════════════════════════════════
+// BALANCE DE DIFICULTAD — modificar estos valores al testear
+// ═══════════════════════════════════════════════════
+
+const DIFF_CAR_SPEED_START = 35;    // px/s al inicio
+const DIFF_CAR_SPEED_END = 115;   // px/s al máximo
+const DIFF_CAR_SPAWN_START = 10000; // ms entre autos al inicio (10s)
+const DIFF_CAR_SPAWN_END = 2500;  // ms entre autos al máximo (2.5s)
+const DIFF_CLIENT_WAIT_START = 25000; // ms que espera un cliente al inicio
+const DIFF_CLIENT_WAIT_END = 7000;  // ms que espera un cliente al máximo
+const DIFF_CLIENT_SPAWN_START = 15000; // ms entre clientes al inicio
+const DIFF_CLIENT_SPAWN_END = 4500;  // ms entre clientes al máximo
+const DIFF_RAMP_TIME = 150000;// ms para llegar al tope (2.5 min)
+const FAIL_RELIEF_MS = 8000;  // ms de respiro tras fallar
+const FAIL_RELIEF_FACTOR = 1.3;   // el spawn se abre 30% durante el respiro
+
+// Escalones del combo — cuántas entregas correctas para subir de nivel
+// índice 0 = para pasar de x1 a x2, índice 1 = de x2 a x3, etc.
+const COMBO_THRESHOLDS = [3, 5, 8, 12, 17, 23, 30];
+
+// Multiplicadores de velocidad del chef por nivel de combo
+// índice 0 = combo x1 (base), índice 7 = combo x8 (máximo)
+const COMBO_SPEEDS = [1.0, 1.25, 1.45, 1.60, 1.72, 1.82, 1.90, 1.96];
+
+// ═══════════════════════════════════════════════════
+// REFERENCIA MODO 2P — NO implementar ahora, solo referencia
+// La pantalla se divide verticalmente en x=400
+// P1: restaurante completo en x=0 a x=400
+// P2: restaurante espejado en x=400 a x=800
+//   X_VENT_P2      = 800 - X_VENT - ZONE_VENT_W = 660
+//   CAR_X_P2       = 800 - CX_VENT = 690
+//   CHEF_X_MIN_P2  = 400 + (800 - CHEF_X_MAX) = 265 (espejado)
+//   CHEF_X_MAX_P2  = 800 - CHEF_X_MIN = 715 (espejado)
+// ═══════════════════════════════════════════════════
+
+// getDifficulty — usa las constantes de balance de arriba
+function getDifficulty(elapsed) {
+  const t = Math.min(elapsed / DIFF_RAMP_TIME, 1);
+  return {
+    carSpeed: DIFF_CAR_SPEED_START + t * (DIFF_CAR_SPEED_END - DIFF_CAR_SPEED_START),
+    carSpawnInterval: DIFF_CAR_SPAWN_START - t * (DIFF_CAR_SPAWN_START - DIFF_CAR_SPAWN_END),
+    clientWait: DIFF_CLIENT_WAIT_START - t * (DIFF_CLIENT_WAIT_START - DIFF_CLIENT_WAIT_END),
+    clientSpawnInterval: DIFF_CLIENT_SPAWN_START - t * (DIFF_CLIENT_SPAWN_START - DIFF_CLIENT_SPAWN_END),
+  };
+}
+
+// getComboSpeed — devuelve el multiplicador de velocidad para el combo actual
+function getComboSpeed(comboMult) {
+  const idx = Math.min(comboMult - 1, COMBO_SPEEDS.length - 1);
+  return COMBO_SPEEDS[idx];
+}
 
 const config = {
   type: Phaser.AUTO,
@@ -106,6 +188,7 @@ function create() {
   createControls(scene);
 
   showStartScreen(scene);
+  drawDebugGrid(scene);
 
   loadHighScores().then(scores => {
     scene.state.highScores = scores;
@@ -163,15 +246,36 @@ function consumePressed(scene, code) {
 
 function createBackground(scene) {
   scene.bgElements = scene.add.group();
-  scene.bgElements.add(scene.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 760, 560, 0x000000, 0).setStrokeStyle(4, COLORS.frame, 0.8));
 
-  scene.bgElements.add(scene.add.rectangle(X_CALLE + ZONE_CALLE / 2, GAME_HEIGHT / 2, ZONE_CALLE, GAME_HEIGHT, COLORS.road));
-  scene.bgElements.add(scene.add.rectangle(X_VENTANILLA + ZONE_VENTANILLA / 2, GAME_HEIGHT / 2, ZONE_VENTANILLA, GAME_HEIGHT, COLORS.overlay, 0.5));
-  scene.bgElements.add(scene.add.rectangle(X_COCINA + ZONE_COCINA / 2, GAME_HEIGHT / 2, ZONE_COCINA, GAME_HEIGHT, 0x222222));
-  scene.bgElements.add(scene.add.rectangle(X_MOSTRADOR + ZONE_MOSTRADOR / 2, GAME_HEIGHT / 2, ZONE_MOSTRADOR, GAME_HEIGHT, COLORS.overlay, 0.5));
-  scene.bgElements.add(scene.add.rectangle(X_TIENDA + ZONE_TIENDA / 2, GAME_HEIGHT / 2, ZONE_TIENDA, GAME_HEIGHT, 0x111111));
+  // Zona cola de autos (izquierda)
+  scene.bgElements.add(scene.add.rectangle(
+    CX_COLA, GAME_HEIGHT / 2, ZONE_COLA_W, GAME_HEIGHT, 0x111111));
 
-  scene.divider = scene.add.rectangle(GAME_WIDTH / 2, 300, GAME_WIDTH, 8, COLORS.frame).setVisible(false);
+  // Zona ventanilla (columna de autos)
+  scene.bgElements.add(scene.add.rectangle(
+    CX_VENT, GAME_HEIGHT / 2, ZONE_VENT_W, GAME_HEIGHT, 0x1a1e05));
+
+  // Zona cocina (donde se mueve el chef)
+  scene.bgElements.add(scene.add.rectangle(
+    CX_COCINA, GAME_HEIGHT / 2, ZONE_COCINA_W, GAME_HEIGHT, 0x222222));
+
+  // Zona mostrador (donde esperan clientes)
+  scene.bgElements.add(scene.add.rectangle(
+    CX_MOSTRADOR, GAME_HEIGHT / 2, ZONE_MOSTRADOR_W, GAME_HEIGHT, 0x1a1e05));
+
+  // Zona cola de clientes (derecha)
+  scene.bgElements.add(scene.add.rectangle(
+    CX_TIENDA, GAME_HEIGHT / 2, ZONE_TIENDA_W, GAME_HEIGHT, 0x111111));
+
+  // Borde decorativo alrededor de todo
+  scene.bgElements.add(scene.add.rectangle(
+    GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0
+  ).setStrokeStyle(4, COLORS.frame, 0.8));
+
+  // Divisor modo 2P (oculto por defecto)
+  scene.divider = scene.add.rectangle(
+    GAME_WIDTH / 2, GAME_HEIGHT / 2, 4, GAME_HEIGHT, COLORS.frame
+  ).setVisible(false);
 }
 
 function updateBackgroundForMode(scene) {
@@ -193,6 +297,7 @@ function createHud(scene) {
   scene.hud.p2ScoreTitle = scene.add.text(40, GAME_HEIGHT - 60, 'TACO STACK', S(20, '#ff3b3b', 1));
   scene.hud.p2ScoreValue = scene.add.text(40, GAME_HEIGHT - 30, 'SCORE: 0', S(20, '#ff3b3b'));
   scene.hud.p2Lives = scene.add.text(GAME_WIDTH - 150, GAME_HEIGHT - 40, 'LIVES: 3', S(20, '#ff6ec7', 1));
+  scene.hud.controlsHint = scene.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 4, '[U1] RECOGER  [U2] BOTAR  [U3] ENTREGAR (ir a ventanilla izq)', S(14, '#999988')).setOrigin(0.5, 1);
 }
 
 function refreshHud(scene) {
@@ -217,7 +322,7 @@ function refreshHud(scene) {
 }
 
 function createGameObjects(scene) {
-  scene.state.p1.obj = createChefGraphics(scene, 0, 0, COLORS.burgertronic);
+  scene.state.p1.obj = createChefGraphics(scene, 0, 0, 0xfdd836);
 
   scene.state.p2.obj = createChefGraphics(scene, 0, 0, COLORS.tacosaurus);
   scene.state.p2.obj.setVisible(false);
@@ -312,13 +417,16 @@ function startMatch(scene, mode) {
   if (scene.state.playing && scene.state.playing.spawns) {
     scene.state.playing.spawns.forEach(s => s.g.destroy());
   }
+  if (scene.state.playing && scene.state.playing.cars) {
+    scene.state.playing.cars.forEach(c => { c.g.destroy(); c.labelG.destroy(); });
+  }
   if (scene.state.p1.heldItemGraphics) scene.state.p1.heldItemGraphics.destroy();
   if (scene.state.p2.heldItemGraphics) scene.state.p2.heldItemGraphics.destroy();
 
-  scene.state.p1 = { ...scene.state.p1, score: 0, comboStreak: 0, comboMult: 1, lives: 3, x: 400, y: p1Y, dir: 'down', heldItem: null, trashCount: 0, heldItemGraphics: null };
-  scene.state.p2 = { ...scene.state.p2, score: 0, comboStreak: 0, comboMult: 1, lives: 3, x: 400, y: 450, dir: 'down', heldItem: null, trashCount: 0, heldItemGraphics: null };
+  scene.state.p1 = { ...scene.state.p1, score: 0, comboStreak: 0, comboMult: 1, lives: 3, x: CX_COCINA, y: 300, dir: 'down', heldItem: null, trashCount: 0, heldItemGraphics: null };
+  scene.state.p2 = { ...scene.state.p2, score: 0, comboStreak: 0, comboMult: 1, lives: 3, x: CX_COCINA, y: 450, dir: 'down', heldItem: null, trashCount: 0, heldItemGraphics: null };
 
-  scene.state.playing = { timeElapsed: 0, spawns: [] };
+  scene.state.playing = { timeElapsed: 0, spawns: [], cars: [], nextCarSpawn: DIFF_CAR_SPAWN_START };
   createSpawns(scene);
 
   updateBackgroundForMode(scene);
@@ -341,20 +449,16 @@ const P2_ITEMS = [
 
 function createSpawns(scene) {
   const s = scene.state.playing.spawns;
+  // En modo 1P los 4 spawns se distribuyen verticalmente
+  // en el centro horizontal de la cocina
+  const ys = [130, 245, 360, 475];
   P1_ITEMS.forEach((item, i) => {
-    let x = X_COCINA + 40 + i * 80;
-    let y = 60;
-    let g = scene.add.circle(x, y, 15, item.color, 0.6);
+    const x = CX_COCINA;
+    const y = ys[i];
+    const g = scene.add.circle(x, y, 15, item.color, 0.6);
     s.push({ x, y, id: item.id, color: item.color, g, p: 'p1' });
   });
-  if (scene.state.mode === '2P') {
-    P2_ITEMS.forEach((item, i) => {
-      let x = X_COCINA + 40 + i * 80;
-      let y = 540;
-      let g = scene.add.circle(x, y, 15, item.color, 0.6);
-      s.push({ x, y, id: item.id, color: item.color, g, p: 'p2' });
-    });
-  }
+  // Nota: en modo 2P los spawns de P2 se agregan en Sprint 5B
 }
 
 function createEndGameUi(scene) {
@@ -455,13 +559,35 @@ function checkPlayerInteraction(scene, p, prefix, pKey) {
 
   if (consumePressed(scene, prefix + '_3')) {
     if (p.heldItem !== null) {
+      const lanes = getLanesForPlayer(scene, pKey);
+      const chefLaneIndex = getChefLane(p.y, lanes);
+      const laneY = lanes[chefLaneIndex];
+
+      const candidateCars = scene.state.playing.cars.filter(c =>
+        !c.served &&
+        c.owner === pKey &&
+        Math.abs(c.y - laneY) < 50 &&
+        c.x >= 5 && c.x <= X_COCINA + 20 &&
+        p.x <= X_COCINA - 10
+      );
+
+      if (candidateCars.length > 0) {
+        candidateCars.sort((a, b) => a.x - b.x);
+        const targetCar = candidateCars[0];
+        if (targetCar.item === p.heldItem) {
+          targetCar.served = true;
+          p.score += 100 * p.comboMult;
+          p.comboStreak++;
+          if (p.comboStreak % 5 === 0) p.comboMult = Math.min(p.comboMult + 1, 8);
+          p.trashCount = 0;
+        } else {
+          p.comboStreak = 0;
+          p.comboMult = 1;
+        }
+      }
       p.heldItemGraphics.destroy();
       p.heldItemGraphics = null;
       p.heldItem = null;
-      p.score += 100 * p.comboMult;
-      p.comboStreak++;
-      if (p.comboStreak % 5 === 0) p.comboMult = Math.min(p.comboMult + 1, 8);
-      p.trashCount = 0;
       refreshHud(scene);
     }
   }
@@ -494,6 +620,10 @@ function showGameOver(scene, playerKey) {
     scene.state.playing.spawns.forEach(s => s.g.destroy());
     scene.state.playing.spawns = [];
   }
+  if (scene.state.playing && scene.state.playing.cars) {
+    scene.state.playing.cars.forEach(c => { c.g.destroy(); c.labelG.destroy(); });
+    scene.state.playing.cars = [];
+  }
   if (scene.state.p1.heldItemGraphics) { scene.state.p1.heldItemGraphics.destroy(); scene.state.p1.heldItemGraphics = null; }
   if (scene.state.p2.heldItemGraphics) { scene.state.p2.heldItemGraphics.destroy(); scene.state.p2.heldItemGraphics = null; }
 
@@ -513,6 +643,10 @@ function endMatch2P(scene, message) {
   if (scene.state.playing && scene.state.playing.spawns) {
     scene.state.playing.spawns.forEach(s => s.g.destroy());
     scene.state.playing.spawns = [];
+  }
+  if (scene.state.playing && scene.state.playing.cars) {
+    scene.state.playing.cars.forEach(c => { c.g.destroy(); c.labelG.destroy(); });
+    scene.state.playing.cars = [];
   }
   if (scene.state.p1.heldItemGraphics) { scene.state.p1.heldItemGraphics.destroy(); scene.state.p1.heldItemGraphics = null; }
   if (scene.state.p2.heldItemGraphics) { scene.state.p2.heldItemGraphics.destroy(); scene.state.p2.heldItemGraphics = null; }
@@ -550,7 +684,7 @@ function movePlayer(scene, p, prefix, speed, yBounds) {
   p.x += dx;
   p.y += dy;
 
-  p.x = Phaser.Math.Clamp(p.x, X_COCINA + 15, X_COCINA + ZONE_COCINA - 15);
+  p.x = Phaser.Math.Clamp(p.x, CHEF_X_MIN, CHEF_X_MAX);
   p.y = Phaser.Math.Clamp(p.y, yBounds[0] + 15, yBounds[1] - 15);
 }
 
@@ -631,3 +765,58 @@ async function saveScoreAndReturn(scene) {
   scene.endGame.title.setText('GAME OVER'); // reset for next time
   showStartScreen(scene);
 }
+
+function drawDebugGrid(scene) {
+  if (!DEBUG_GRID) return;
+  if (scene.debugGrid) scene.debugGrid.destroy();
+  scene.debugGrid = scene.add.graphics();
+  const g = scene.debugGrid;
+
+  // Línea izq de ventanilla — azul
+  g.lineStyle(2, 0x0088ff, 0.8);
+  g.lineBetween(X_VENT, 0, X_VENT, GAME_HEIGHT);
+
+  // Línea der de ventanilla / izq de cocina — azul
+  g.lineBetween(X_COCINA, 0, X_COCINA, GAME_HEIGHT);
+
+  // Línea der de cocina / izq de mostrador — verde
+  g.lineStyle(2, 0x00ff88, 0.8);
+  g.lineBetween(X_MOSTRADOR, 0, X_MOSTRADOR, GAME_HEIGHT);
+
+  // Línea der de mostrador / izq de tienda — verde
+  g.lineBetween(X_TIENDA, 0, X_TIENDA, GAME_HEIGHT);
+
+  // Columna del auto — rojo
+  g.lineStyle(2, 0xff0000, 0.8);
+  g.lineBetween(CAR_X, 0, CAR_X, GAME_HEIGHT);
+
+  // Límite izq del chef — amarillo
+  g.lineStyle(2, 0xffff00, 0.5);
+  g.lineBetween(CHEF_X_MIN, 0, CHEF_X_MIN, GAME_HEIGHT);
+
+  // Límite der del chef — amarillo
+  g.lineBetween(CHEF_X_MAX, 0, CHEF_X_MAX, GAME_HEIGHT);
+
+  // Zona de entrega auto (SERVE_AUTO_X_MAX) — naranja
+  g.lineStyle(2, 0xff8800, 0.8);
+  g.lineBetween(SERVE_AUTO_X_MAX, 0, SERVE_AUTO_X_MAX, GAME_HEIGHT);
+
+  // Zona de entrega cliente (SERVE_CLIENT_X_MIN) — naranja
+  g.lineBetween(SERVE_CLIENT_X_MIN, 0, SERVE_CLIENT_X_MIN, GAME_HEIGHT);
+
+  // Etiquetas de zonas
+  const labels = [
+    [CX_COLA, 20, 'COLA\nAUTOS', '#0088ff'],
+    [CX_VENT, 20, 'VENT', '#0088ff'],
+    [CX_COCINA, 20, 'COCINA', '#ffffff'],
+    [CX_MOSTRADOR, 20, 'MOST', '#00ff88'],
+    [CX_TIENDA, 20, 'COLA\nCLIENT', '#00ff88'],
+  ];
+  labels.forEach(([x, y, text, color]) => {
+    scene.add.text(x, y, text, {
+      fontFamily: 'monospace', fontSize: '10px',
+      color, align: 'center'
+    }).setOrigin(0.5, 0);
+  });
+}
+
